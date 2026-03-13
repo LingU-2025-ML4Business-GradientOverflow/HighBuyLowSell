@@ -49,29 +49,42 @@ HighBuyLowSell/
 
 ## Quick Start
 
+### 0) Clone the repo
+```bash
+git clone https://github.com/Xeler-ync/HighBuyLowSell.git
+cd HighBuyLowSell
+```
+
 ### 1) Install dependencies
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+
+# Windwos
+venv\Scripts\activate.bat
+
+# MacOS / Linux
+source venv/bin/activate
+
+pip install -r requirements.txt
 ```
 
 ### 2) Download raw data
 
 ```bash
-.venv/bin/python src/download_yahoo.py
+python src/download_yahoo.py
 ```
 
 ### 3) Validate raw data
 
 ```bash
-.venv/bin/python src/check_raw_data.py
+python src/check_raw_data.py
 ```
 
 ### 4) Run a baseline model
 
 ```bash
-.venv/bin/python src/train_baseline.py --input data/raw/yahoo_daily_prices.csv --symbol NVDA
+python src/train_baseline.py --input data/raw/yahoo_daily_prices.csv --symbol NVDA
 ```
 
 Generated artifacts:
