@@ -281,6 +281,7 @@ def main():
     # Save log file
     save_cleaning_log(summary, TICKERS, START_DATE, END_DATE, LOG_PATH)
     print("Pipeline completed successfully!")
+    
 
 
 # =========================================================
