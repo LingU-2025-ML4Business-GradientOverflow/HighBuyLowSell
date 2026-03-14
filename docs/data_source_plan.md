@@ -55,9 +55,9 @@ Therefore:
 
 ## Raw Layer Definition
 
-The raw dataset is a lightly normalized extract from Yahoo Finance.
+The raw dataset is a lightly normalized extract from Yahoo Finance.   
 
-At the raw layer:
+At the raw layer:   
 
 - requested symbols are attached explicitly as `symbol`,
 - column names are normalized to the project schema,
