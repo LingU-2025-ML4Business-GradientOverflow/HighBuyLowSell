@@ -12,7 +12,7 @@ from config import DEFAULT_START_DATE, DEFAULT_TICKERS, RAW_DATA_COLUMNS
 from data import load_stock_data
 
 
-REQUIRED_COLUMNS = ["date", "symbol", "open", "high", "low", "close"]
+REQUIRED_COLUMNS = ["date", "symbol", "open", "high", "low", "close", "volume"]
 OPTIONAL_COLUMNS = [col for col in RAW_DATA_COLUMNS if col not in REQUIRED_COLUMNS]
 
 
@@ -116,7 +116,7 @@ def validate_data(data: pd.DataFrame, summary: dict[str, Any]) -> dict[str, Any]
 
     duplicate_rows = summary.get("duplicate_symbol_date_rows")
     if isinstance(duplicate_rows, int) and duplicate_rows > 0:
-        warnings.append(f"Found {duplicate_rows} duplicate rows on ['symbol', 'date'].")
+        errors.append(f"Found {duplicate_rows} duplicate rows on ['symbol', 'date'].")
 
     if data.empty:
         errors.append("Dataset is empty.")
@@ -137,7 +137,8 @@ def validate_data(data: pd.DataFrame, summary: dict[str, Any]) -> dict[str, Any]
             warnings.append(f"Found {missing_close} rows with missing close values.")
 
     if "symbol" in data.columns:
-        missing_symbol = int(data["symbol"].isna().sum())
+        invalid_symbol_mask = data["symbol"].isna() | data["symbol"].astype("string").str.strip().eq("")
+        missing_symbol = int(invalid_symbol_mask.sum())
         if missing_symbol > 0:
             errors.append(f"Found {missing_symbol} rows with missing symbol values.")
 

@@ -48,7 +48,8 @@ def load_stock_data(
     elif symbol_column != "symbol":
         data = data.rename(columns={symbol_column: "symbol"})
 
-    data["symbol"] = data["symbol"].astype(str).str.strip()
+    # Preserve missing values so validation can still detect malformed symbol fields.
+    data["symbol"] = data["symbol"].astype("string").str.strip()
 
     data["date"] = pd.to_datetime(data["date"], errors="coerce")
 
