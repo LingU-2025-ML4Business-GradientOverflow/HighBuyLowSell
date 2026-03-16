@@ -10,7 +10,7 @@ import yfinance as yf
 from config import DEFAULT_START_DATE, DEFAULT_TICKERS, RAW_DATA_COLUMNS
 
 
-REQUIRED_COLUMNS = ["date", "symbol", "open", "high", "low", "close"]
+REQUIRED_COLUMNS = ["date", "symbol", "open", "high", "low", "close", "volume"]
 OPTIONAL_COLUMNS = [col for col in RAW_DATA_COLUMNS if col not in REQUIRED_COLUMNS]
 
 
