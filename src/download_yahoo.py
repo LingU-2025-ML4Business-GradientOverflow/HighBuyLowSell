@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-from config import DEFAULT_START_DATE, DEFAULT_TICKERS, RAW_DATA_COLUMNS
+from config import DEFAULT_START_DATE,DEFAULT_END_DATE, DEFAULT_TICKERS, RAW_DATA_COLUMNS
 
 
 REQUIRED_COLUMNS = ["date", "symbol", "open", "high", "low", "close", "volume"]
@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--end",
-        default=None,
+        default=DEFAULT_END_DATE,
         help="Exclusive end date in YYYY-MM-DD format.",
     )
     parser.add_argument(
