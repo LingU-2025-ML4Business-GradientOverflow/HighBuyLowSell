@@ -1,78 +1,114 @@
 import pandas as pd
 import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
 
-def build_baseline_features(df: pd.DataFrame) -> pd.DataFrame:
+class TechnicalIndicatorTransformer(BaseEstimator, TransformerMixin):
     """
-    Build baseline features and a unified label for Issue 2.
-    Strictly prevents look-ahead bias (data leakage). 
-    All calculations must be performed within symbol groups.
+    Custom transformer to calculate all required technical indicators for Issue 2.
+    Ensures no look-ahead bias by using group-based windowing functions.
     """
-    # 1. Basic cleaning and sorting (Crucial: sort by ticker and time)
-    # Assuming the input df contains: date, symbol, open, high, low, close, volume
-    df = df.sort_values(by=['symbol', 'date']).copy()
-    
-    # 2. Core feature engineering (Use groupby to avoid cross-contamination)
-    grouped = df.groupby('symbol')
-    
-    # - return_1d: 1-day percentage return
-    df['return_1d'] = grouped['close'].pct_change(periods=1)
-    
-    # - return_5d: 5-day percentage return
-    df['return_5d'] = grouped['close'].pct_change(periods=5)
-    
-    # - volume_change_1d: 1-day volume change rate
-    df['volume_change_1d'] = grouped['volume'].pct_change(periods=1)
-    
-    # - ma_gap_5: Deviation from the 5-day moving average (bias ratio)
-    # Calculate the MA from T-4 to T, then find the relative difference to the current price
-    sma_5 = grouped['close'].transform(lambda x: x.rolling(window=5).mean())
-    df['ma_gap_5'] = (df['close'] - sma_5) / sma_5
-    
-    # - ma_gap_10: Deviation from the 10-day moving average
-    sma_10 = grouped['close'].transform(lambda x: x.rolling(window=10).mean())
-    df['ma_gap_10'] = (df['close'] - sma_10) / sma_10
-    
-    # - volatility_5d: 5-day volatility (5-day rolling standard deviation of 1-day returns)
-    df['volatility_5d'] = grouped['return_1d'].transform(lambda x: x.rolling(window=5).std())
+    def __init__(self):
+        # No hyperparameters needed for this baseline
+        pass
 
-    # 3. Label Definition
-    # next-day direction classification: 1 for next day up, 0 for flat or down
-    # Negative shift (shift(-1) to get tomorrow's data) is ONLY allowed here.
-    future_close = grouped['close'].shift(-1)
-    df['target_direction'] = (future_close > df['close']).astype(int)
-    
-    # Mark the natural NaNs created by shift(-1) at the end of each stock's series
-    # Set them to NaN so they can be dropped together later
-    df.loc[future_close.isna(), 'target_direction'] = np.nan
+    def fit(self, X, y=None):
+        """
+        In scikit-learn, fit must return self. 
+        Even if no parameters are learned, this 'activates' the transformer.
+        """
+        return self
 
-    # 4. Handle missing values
-    # Rolling windows (e.g., 10-day MA) and shift operations create NaNs 
-    # at the beginning and end of each stock's time series.
-    df_clean = df.dropna().reset_index(drop=True)
-    
-    # Ensure target is integer type
-    df_clean['target_direction'] = df_clean['target_direction'].astype(int)
-    
-    return df_clean
+    def transform(self, X):
+        """
+        Core logic to calculate 10+ technical indicators.
+        Input: Raw OHLCV DataFrame
+        Output: Processed DataFrame with features and target
+        """
+        df = X.copy()
+        # Ensure data is sorted for time-series calculations
+        df = df.sort_values(by=['symbol', 'date']).reset_index(drop=True)
+        grouped = df.groupby('symbol')
+
+        # --- 1. Trend Indicators ---
+        # SMA 5, 10, 20
+        for n in [5, 10, 20]:
+            df[f'sma_{n}'] = grouped['close'].transform(lambda x: x.rolling(window=n).mean())
+        
+        # EMA 12, 26
+        df['ema_12'] = grouped['close'].transform(lambda x: x.ewm(span=12, adjust=False).mean())
+        df['ema_26'] = grouped['close'].transform(lambda x: x.ewm(span=26, adjust=False).mean())
+        
+        # MACD (Moving Average Convergence Divergence)
+        df['macd'] = df['ema_12'] - df['ema_26']
+        df['macd_signal'] = grouped['macd'].transform(lambda x: x.ewm(span=9, adjust=False).mean())
+        df['macd_hist'] = df['macd'] - df['macd_signal']
+
+        # --- 2. Momentum Indicators ---
+        # RSI 14 (Relative Strength Index)
+        def calc_rsi(series, period=14):
+            delta = series.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+            rs = gain / (loss + 1e-9)  # Avoid division by zero
+            return 100 - (100 / (1 + rs))
+        df['rsi_14'] = grouped['close'].transform(calc_rsi)
+
+        # --- 3. Volatility Indicators ---
+        # Bollinger Bands (20, 2)
+        df['bb_mid'] = df['sma_20']
+        df['bb_std'] = grouped['close'].transform(lambda x: x.rolling(window=20).std())
+        df['bb_upper'] = df['bb_mid'] + (df['bb_std'] * 2)
+        df['bb_lower'] = df['bb_mid'] - (df['bb_std'] * 2)
+
+        # --- 4. Volume Indicators ---
+        # Simple Price-Volume Divergence: Price Up AND Volume Down
+        df['price_up'] = (df['close'] > grouped['close'].shift(1)).astype(int)
+        df['vol_down'] = (df['volume'] < grouped['volume'].shift(1)).astype(int)
+        df['vol_price_divergence'] = (df['price_up'] & df['vol_down']).astype(int)
+
+        # --- 5. Return & Volatility Features (Baseline) ---
+        df['return_1d'] = grouped['close'].pct_change(1)
+        df['ma_gap_10'] = (df['close'] - df['sma_10']) / df['sma_10']
+        df['volatility_5d'] = grouped['return_1d'].transform(lambda x: x.rolling(window=5).std())
+
+        # --- 6. Target Definition (Next day direction) ---
+        # Next-day close > Today's close
+        df['target'] = (grouped['close'].shift(-1) > df['close']).astype(int)
+        
+        # Handle end-of-series NaNs for target and start-of-series NaNs for indicators
+        # SMA20/RSI14/BB will create about 20 NaNs at the start of each symbol
+        df_clean = df.dropna().reset_index(drop=True)
+        return df_clean
+
+# Instantiate the Pipeline
+# This is what Issue 3A/3B will import
+feature_pipeline = Pipeline([
+    ('indicators', TechnicalIndicatorTransformer())
+])
 
 if __name__ == "__main__":
-    # Local testing logic (will not interfere with downstream imports)
+    # Test script for Issue 2 verification
     try:
+        # 1. Load data
         raw_data = pd.read_csv("./data/raw/yahoo_daily_prices.csv")
-        processed_data = build_baseline_features(raw_data)
         
-        # Print baseline feature info for EDA reference
-        print("=== Baseline Features Constructed ===")
-        print(f"Original rows: {len(raw_data)} -> Cleaned rows: {len(processed_data)}")
+        # 2. RUN PIPELINE: Use fit_transform instead of transform
+        print("Fitting and transforming data through pipeline...")
+        processed_df = feature_pipeline.fit_transform(raw_data)
         
-        feature_cols = [col for col in processed_data.columns if col not in ['date', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'target_direction']]
-        print(f"\nFeature list: {feature_cols}")
-        print("\nLabel distribution (target_direction):")
-        print(processed_data['target_direction'].value_counts(normalize=True))
+        # 3. Output results
+        print("\n=== Pipeline Output Statistics ===")
+        print(f"Final Data Shape: {processed_df.shape}")
         
-        # Output for Issue 3 modeling team
-        processed_data.to_csv("./data/processed/baseline_features.csv", index=False)
-        print("\nSaved successfully to ./data/processed/baseline_features.csv")
+        # List generated features (excluding standard columns and target)
+        metadata_cols = ['date', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'target']
+        features_list = [c for c in processed_df.columns if c not in metadata_cols]
+        print(f"Features Generated ({len(features_list)}): {features_list}")
         
-    except FileNotFoundError:
-        print("Raw data file not found. Please check the path.")
+        # 4. Export for modeling team
+        processed_df.to_csv("./data/processed/features.csv", index=False)
+        print("\nSUCCESS: features.csv has been updated.")
+        
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}")
