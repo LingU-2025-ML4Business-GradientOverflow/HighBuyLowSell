@@ -13,6 +13,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 
 
 from feature_pipeline import feature_pipeline
@@ -498,8 +501,10 @@ def run_single_stock_experiment(
     }
 
 
+
+
 def compare_models(results: List[Dict]) -> pd.DataFrame:
-    """比较不同股票和模型的结果"""
+    """比较不同股票和模型的结果，并生成简单可视化"""
     comparison_data = []
 
     for result in results:
@@ -510,7 +515,63 @@ def compare_models(results: List[Dict]) -> pd.DataFrame:
                 row.update(metrics)
                 comparison_data.append(row)
 
-    return pd.DataFrame(comparison_data)
+    comparison_df = pd.DataFrame(comparison_data)
+    
+    # 简单可视化
+    plt.figure(figsize=(15, 10))
+    
+    # 子图1：准确率比较
+    plt.subplot(2, 2, 1)
+    pivot_acc = comparison_df.pivot(index='symbol', columns='model', values='accuracy')
+    pivot_acc.plot(kind='bar', ax=plt.gca())
+    plt.title('Accuracy Comparison by Stock and Model')
+    plt.xlabel('stock symbol')
+    plt.ylabel('Accuracy')
+    plt.legend(title='Model')
+    plt.xticks(rotation=45)
+    
+    # 子图2：模型平均性能
+    plt.subplot(2, 2, 2)
+    model_avg = comparison_df.groupby('model')[['accuracy', 'precision', 'recall', 'f1']].mean()
+    model_avg.plot(kind='bar', ax=plt.gca())
+    plt.title('Average Performance by Model')
+    plt.xlabel('Model')
+    plt.ylabel('Average Score')
+    plt.legend(title='Metrics')
+    plt.xticks(rotation=0)
+    
+    # 子图3：热力图
+    plt.subplot(2, 2, 3)
+    pivot_all = comparison_df.pivot(index='symbol', columns='model', values='accuracy')
+    sns.heatmap(pivot_all, annot=True, fmt='.3f', cmap='YlOrRd', 
+                cbar_kws={'label': 'Accuracy'})
+    plt.title('Accuracy Heatmap')
+    
+    # 子图4：箱线图（模型稳定性）
+    plt.subplot(2, 2, 4)
+    comparison_df.boxplot(column='accuracy', by='model', ax=plt.gca())
+    plt.title('Stability of Models (Accuracy Distribution)')
+    plt.suptitle('')
+    plt.xlabel('Model')
+    plt.ylabel('Accuracy')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # 打印关键信息到控制台
+    print("\n" + "="*50)
+    print("compare_models")
+    print("="*50)
+    print("\nbest combination:")
+    best = comparison_df.loc[comparison_df['accuracy'].idxmax()]
+    print(f"  Stock: {best['symbol']}, Model: {best['model']}, Accuracy: {best['accuracy']:.4f}")
+
+    print("\nAverage Accuracy by Model:")
+    for model in comparison_df['model'].unique():
+        avg_acc = comparison_df[comparison_df['model']==model]['accuracy'].mean()
+        print(f"  {model}: {avg_acc:.4f}")
+    
+    return comparison_df
 
 
 def save_results(results: List[Dict], output_dir: str) -> None:
