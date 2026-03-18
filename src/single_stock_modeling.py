@@ -39,7 +39,14 @@ def parse_args() -> argparse.Namespace:
         "--symbols",
         type=str,
         nargs="+",
-        default=["0700.HK"],
+        default=[
+            "0700.HK",
+            "BABA",
+            "BIDU",
+            "GOOGL",
+            "MSFT",
+            "NVDA",
+        ],
         help="List of stock symbols to model",
     )
     parser.add_argument("--test-size", type=float, default=0.2, help="Test set ratio")
