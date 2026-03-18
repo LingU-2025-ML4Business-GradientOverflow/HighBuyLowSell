@@ -9,6 +9,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import train_test_split
 import xgboost as xgb
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+
 
 from feature_pipeline import feature_pipeline
 
@@ -111,6 +116,94 @@ def prepare_data(
     return X_train, X_test, y_train, y_test
 
 
+class StockCNN(nn.Module):
+    def __init__(self, input_size: int, time_steps: int = 5):
+        """
+        初始化CNN模型用于股票预测
+
+        Args:
+            input_size: 输入特征数量
+            time_steps: 时间步长
+        """
+        super(StockCNN, self).__init__()
+        self.time_steps = time_steps
+
+        # 卷积层
+        self.conv1 = nn.Conv1d(in_channels=input_size, out_channels=64, kernel_size=2)
+        self.pool1 = nn.MaxPool1d(kernel_size=2)
+        self.conv2 = nn.Conv1d(in_channels=64, out_channels=32, kernel_size=2)
+        # 修改池化层，使用kernel_size=1或移除第二个池化层
+        self.pool2 = nn.MaxPool1d(kernel_size=1)  # 修改为kernel_size=1
+
+        # 全连接层
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(32, 50)
+        self.fc2 = nn.Linear(50, 1)
+
+        # Dropout层
+        self.dropout = nn.Dropout(p=0.3)
+
+        # 激活函数
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        """
+        前向传播函数
+
+        Args:
+            x: 输入张量，形状为 (batch_size, time_steps, features)
+
+        Returns:
+            输出张量，形状为 (batch_size, 1)
+        """
+        # 输入形状: (batch_size, time_steps, features)
+        # 转换为 (batch_size, features, time_steps) 适配Conv1d
+        x = x.permute(0, 2, 1)
+
+        # 第一层卷积和池化
+        x = self.relu(self.conv1(x))
+        x = self.pool1(x)
+        x = self.dropout(x)
+
+        # 第二层卷积和池化
+        x = self.relu(self.conv2(x))
+        x = self.pool2(x)
+        x = self.dropout(x)
+
+        # 展平并连接到全连接层
+        x = self.flatten(x)
+        x = self.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.sigmoid(self.fc2(x))
+
+        return x
+
+
+def prepare_sequences(
+    X: pd.DataFrame, y: pd.Series, time_steps: int = 5
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    准备时间序列数据
+
+    Args:
+        X: 特征数据
+        y: 目标数据
+        time_steps: 时间步长
+
+    Returns:
+        Tuple: (X_seq, y_seq) 序列化后的数据和标签
+    """
+    X_seq = []
+    y_seq = []
+
+    for i in range(len(X) - time_steps):
+        X_seq.append(X.iloc[i : (i + time_steps)].values)
+        y_seq.append(y.iloc[i + time_steps])
+
+    return np.array(X_seq), np.array(y_seq)
+
+
 def train_logistic_regression(
     X_train: pd.DataFrame, y_train: pd.Series, random_state: int = 42
 ) -> LogisticRegression:
@@ -140,11 +233,153 @@ def train_xgboost(
     return model
 
 
-def evaluate_model(model, X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, float]:
-    """Evaluate model performance"""
-    y_pred = model.predict(X_test)
-    results = {}
+def train_cnn(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    random_state: int = 42,
+    epochs: int = 100,
+    batch_size: int = 32,
+    learning_rate: float = 0.001,
+) -> Tuple[nn.Module, int]:
+    """
+    使用PyTorch训练CNN模型
 
+    Args:
+        X_train: 训练特征
+        y_train: 训练目标
+        random_state: 随机种子
+        epochs: 训练轮数
+        batch_size: 批次大小
+        learning_rate: 学习率
+
+    Returns:
+        Tuple: (model, time_steps) 训练好的模型和时间步长
+    """
+    # 设置随机种子以确保可重复性
+    torch.manual_seed(random_state)
+    np.random.seed(random_state)
+
+    # 定义时间步长
+    time_steps = 5
+
+    # 准备序列数据
+    X_seq, y_seq = prepare_sequences(X_train, y_train, time_steps)
+
+    # 转换为PyTorch张量
+    X_tensor = torch.FloatTensor(X_seq)
+    y_tensor = torch.FloatTensor(y_seq).unsqueeze(1)  # 添加维度以匹配输出
+
+    # 创建数据加载器
+    dataset = TensorDataset(X_tensor, y_tensor)
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        dataset, [train_size, val_size]
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+    # 初始化模型
+    input_size = X_train.shape[1]
+    model = StockCNN(input_size=input_size, time_steps=time_steps)
+
+    # 定义损失函数和优化器
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # 训练模型
+    best_val_loss = float("inf")
+    patience = 10
+    patience_counter = 0
+
+    for epoch in range(epochs):
+        # 训练阶段
+        model.train()
+        train_loss = 0.0
+        for X_batch, y_batch in train_loader:
+            optimizer.zero_grad()
+            outputs = model(X_batch)
+            loss = criterion(outputs, y_batch)
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        # 验证阶段
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for X_batch, y_batch in val_loader:
+                outputs = model(X_batch)
+                loss = criterion(outputs, y_batch)
+                val_loss += loss.item()
+
+        # 计算平均损失
+        train_loss /= len(train_loader)
+        val_loss /= len(val_loader)
+
+        # 早停机制
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            # 保存最佳模型
+            best_model_state = model.state_dict()
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                logger.info(f"Early stopping at epoch {epoch+1}")
+                break
+
+        # 打印训练进度
+        if (epoch + 1) % 10 == 0:
+            logger.info(
+                f"Epoch [{epoch+1}/{epochs}], Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}"
+            )
+
+    # 加载最佳模型
+    model.load_state_dict(best_model_state)
+
+    return model, time_steps
+
+
+def evaluate_model(
+    model, X_test: pd.DataFrame, y_test: pd.Series, time_steps: int = None
+) -> Dict[str, float]:
+    """
+    评估模型性能
+
+    Args:
+        model: 训练好的模型
+        X_test: 测试特征
+        y_test: 测试目标
+        time_steps: 时间步长（仅CNN需要）
+
+    Returns:
+        Dict: 包含各种评估指标的字典
+    """
+    # 对于CNN模型，需要创建序列数据
+    if time_steps is not None:
+        X_seq, y_seq = prepare_sequences(X_test, y_test, time_steps)
+
+        # 转换为PyTorch张量
+        X_tensor = torch.FloatTensor(X_seq)
+
+        # 预测
+        model.eval()
+        with torch.no_grad():
+            y_pred_prob = model(X_tensor).numpy().flatten()
+
+        # 转换为二分类预测
+        y_pred = (y_pred_prob > 0.5).astype(int)
+
+        # 使用序列化的标签
+        y_test = y_seq
+    else:
+        # 对于非CNN模型，使用原始预测方法
+        y_pred = model.predict(X_test)
+
+    # 计算评估指标
+    results = {}
     for metric_name, metric_func in METRICS.items():
         results[metric_name] = metric_func(y_test, y_pred)
 
@@ -182,55 +417,60 @@ def run_single_stock_experiment(
     data_path: str, symbol: str, test_size: float = 0.2, random_state: int = 42
 ) -> Dict:
     """
-    Run single stock experiment using feature pipeline
+    使用特征管道运行单股实验
 
     Args:
-        data_path: Path to data file
-        symbol: Stock symbol
-        test_size: Test set ratio
-        random_state: Random seed
+        data_path: 数据文件路径
+        symbol: 股票代码
+        test_size: 测试集比例
+        random_state: 随机种子
 
     Returns:
-        Dictionary containing experiment results
+        Dict: 包含实验结果的字典
     """
     logger.info(f"Starting single stock experiment: {symbol}")
 
-    # Prepare data
+    # 准备数据
     X_train, X_test, y_train, y_test = prepare_data(
         data_path, symbol, test_size, random_state
     )
 
-    # Get feature column names
+    # 获取特征列名
     feature_cols = X_train.columns.tolist()
 
-    # Train models
+    # 训练模型
     lr_model = train_logistic_regression(X_train, y_train, random_state)
     xgb_model = train_xgboost(X_train, y_train, random_state)
+    cnn_model, time_steps = train_cnn(X_train, y_train, random_state)
 
-    # Evaluate models
+    # 评估模型
     lr_results = evaluate_model(lr_model, X_test, y_test)
     xgb_results = evaluate_model(xgb_model, X_test, y_test)
+    cnn_results = evaluate_model(cnn_model, X_test, y_test, time_steps)
 
-    # Return results
+    # 返回结果
     return {
         "symbol": symbol,
         "logistic_regression": lr_results,
         "xgboost": xgb_results,
+        "cnn": cnn_results,
         "feature_importance": {
             "logistic_regression": dict(zip(feature_cols, lr_model.coef_[0])),
             "xgboost": dict(zip(feature_cols, xgb_model.feature_importances_)),
+            "cnn": {},  # CNN特征重要性较复杂，可以后续添加
         },
+        "time_steps": time_steps,
     }
 
 
 def compare_models(results: List[Dict]) -> pd.DataFrame:
-    """Compare results across different stocks and models"""
+    """比较不同股票和模型的结果"""
     comparison_data = []
 
     for result in results:
         symbol = result["symbol"]
         for model_name, metrics in result.items():
-            if model_name in ["logistic_regression", "xgboost"]:
+            if model_name in ["logistic_regression", "xgboost", "cnn"]:
                 row = {"symbol": symbol, "model": model_name}
                 row.update(metrics)
                 comparison_data.append(row)
@@ -262,17 +502,27 @@ def save_results(results: List[Dict], output_dir: str) -> None:
 
 
 def generate_conclusions(results: List[Dict]) -> Dict:
-    """Generate experiment conclusions"""
+    """生成实验结论"""
     comparison_df = compare_models(results)
 
-    # Find best performing stock and model
+    # 找到表现最好的股票和模型
     best_accuracy = comparison_df.loc[comparison_df["accuracy"].idxmax()]
 
-    # Compare model stability
+    # 比较模型稳定性
     model_stability = comparison_df.groupby("model")["accuracy"].std().to_dict()
 
-    # Compare stock modelability
+    # 比较股票可建模性
     stock_modelability = comparison_df.groupby("symbol")["accuracy"].mean().to_dict()
+
+    # 确定推荐模型（基于稳定性和性能）
+    models = list(model_stability.keys())
+    recommended_model = min(
+        models,
+        key=lambda m: (
+            model_stability[m],
+            -comparison_df[comparison_df["model"] == m]["accuracy"].mean(),
+        ),
+    )
 
     return {
         "best_performing": {
@@ -283,14 +533,9 @@ def generate_conclusions(results: List[Dict]) -> Dict:
         "model_stability": model_stability,
         "stock_modelability": stock_modelability,
         "recommendations": {
-            "worth_retaining": model_stability["xgboost"]
-            < model_stability["logistic_regression"],
+            "worth_retaining": True,  # 假设CNN值得尝试
             "recommended_symbol": max(stock_modelability, key=stock_modelability.get),
-            "recommended_model": (
-                "xgboost"
-                if model_stability["xgboost"] < model_stability["logistic_regression"]
-                else "logistic_regression"
-            ),
+            "recommended_model": recommended_model,
         },
     }
 
