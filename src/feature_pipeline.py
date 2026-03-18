@@ -101,6 +101,11 @@ class AdvancedCompanySpecificTransformer(BaseEstimator, TransformerMixin):
         df.loc[bidu_m, 'bidu_cash_stability'] = df['close'].rolling(10).median() / (df['close'] + 1e-6)
         df.loc[bidu_m, 'bidu_rebound_force'] = df['low'].rolling(20).min() / (df['close'] + 1e-6)
 
+
+        # --- Target Definition (Next day direction) ---
+        # Next-day close > Today's close
+        df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
+
         return df.fillna(0)
 
 
