@@ -414,6 +414,40 @@ def get_feature_columns(data_path: str) -> List[str]:
     return [c for c in processed_sample.columns if c not in metadata_cols]
 
 
+def get_cnn_feature_importance(
+    model: nn.Module, feature_cols: List[str]
+) -> Dict[str, float]:
+    """
+    获取CNN模型的特征重要性
+
+    Args:
+        model: 训练好的CNN模型
+        feature_cols: 特征列名列表
+
+    Returns:
+        Dict: 特征名到重要性分数的映射
+    """
+    # 获取第一层卷积层的权重
+    conv1_weights = (
+        model.conv1.weight.data.numpy()
+    )  # shape: (out_channels, in_channels, kernel_size)
+
+    # 计算每个输入特征通道的权重绝对值均值
+    feature_importance = np.mean(
+        np.abs(conv1_weights), axis=(0, 2)
+    )  # shape: (in_channels,)
+
+    # 归一化到0-1范围
+    feature_importance = (feature_importance - feature_importance.min()) / (
+        feature_importance.max() - feature_importance.min()
+    )
+
+    # 创建特征名到重要性分数的映射
+    importance_dict = dict(zip(feature_cols, feature_importance))
+
+    return importance_dict
+
+
 def run_single_stock_experiment(
     data_path: str, symbol: str, test_size: float = 0.2, random_state: int = 42
 ) -> Dict:
@@ -458,7 +492,7 @@ def run_single_stock_experiment(
         "feature_importance": {
             "logistic_regression": dict(zip(feature_cols, lr_model.coef_[0])),
             "xgboost": dict(zip(feature_cols, xgb_model.feature_importances_)),
-            "cnn": {},  # CNN特征重要性较复杂，可以后续添加
+            "cnn": get_cnn_feature_importance(cnn_model, feature_cols),
         },
         "time_steps": time_steps,
     }
