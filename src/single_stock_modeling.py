@@ -208,7 +208,9 @@ def train_logistic_regression(
     X_train: pd.DataFrame, y_train: pd.Series, random_state: int = 42
 ) -> LogisticRegression:
     """Train logistic regression model"""
-    model = LogisticRegression(random_state=random_state, max_iter=1000)
+    model = LogisticRegression(
+        random_state=random_state, max_iter=5000, solver="saga", tol=1e-3
+    )
     model.fit(X_train, y_train)
     return model
 
