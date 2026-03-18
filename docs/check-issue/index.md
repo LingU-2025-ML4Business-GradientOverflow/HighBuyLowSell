@@ -20,11 +20,11 @@
 
 1. [issue2-2026-03-17-特征工程反馈](./issue2-2026-03-17-特征工程反馈.md)
 2. [issue3A-2026-03-17-建模建议](./issue3A-2026-03-17-建模建议.md)
+3. [issue4-结果收口原则补充](./issue4-结果收口原则补充.md)
 
 配套参考：
 
 1. [data_source_plan.md](../data_source_plan.md)
-2. [team_alignment_one_pager.md](../team_alignment_one_pager.md)
 
 当前项目主线：
 
