@@ -73,12 +73,14 @@ class TechnicalIndicatorTransformer(BaseEstimator, TransformerMixin):
         df['volatility_5d'] = grouped['return_1d'].transform(lambda x: x.rolling(window=5).std())
 
         # --- 6. Target Definition (Next day direction) ---
-        # Next-day close > Today's close
-        df['target'] = (grouped['close'].shift(-1) > df['close']).astype(int)
-        
-        # Handle end-of-series NaNs for target and start-of-series NaNs for indicators
-        # SMA20/RSI14/BB will create about 20 NaNs at the start of each symbol
-        df_clean = df.dropna().reset_index(drop=True)
+        # Generate the future close first so each symbol's last row can be dropped cleanly.
+        df['future_close'] = grouped['close'].shift(-1)
+        df['target'] = (df['future_close'] > df['close']).astype(int)
+
+        # Handle end-of-series NaNs for target and start-of-series NaNs for indicators.
+        # SMA20/RSI14/BB create NaNs at the start of each symbol, while future_close is NaN
+        # on the last row of each symbol and must be removed before modeling.
+        df_clean = df.dropna().drop(columns=['future_close']).reset_index(drop=True)
         return df_clean
 
 # Instantiate the Pipeline
