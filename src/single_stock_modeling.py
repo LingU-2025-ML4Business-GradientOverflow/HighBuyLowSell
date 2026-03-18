@@ -219,7 +219,6 @@ def train_xgboost(
     """Train XGBoost model with optimized parameters"""
     model = xgb.XGBClassifier(
         random_state=random_state,
-        use_label_encoder=False,
         eval_metric="logloss",
         max_depth=5,
         learning_rate=0.05,
