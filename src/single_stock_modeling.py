@@ -113,6 +113,8 @@ def prepare_data(
         X, y, test_size=test_size, random_state=random_state, shuffle=False
     )
 
+    X_train.replace((np.inf, -np.inf), 0, inplace=True)
+
     return X_train, X_test, y_train, y_test
 
 
