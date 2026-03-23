@@ -17,7 +17,7 @@ from xgboost import XGBClassifier
 
 
 from data import load_stock_data
-from features import build_feature_table, feature_columns
+from src.feature_pipeline_universal import feature_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,7 +123,7 @@ def build_preprocessor(feature_set: str, numeric_columns: list[str]) -> ColumnTr
 
 def build_estimator(model_name: str, feature_set: str, models: dict[str, object]) -> Pipeline:
     estimator = clone(models[model_name])
-    preprocessor = build_preprocessor(feature_set, feature_columns())
+    preprocessor = build_preprocessor(feature_set, features_list)
     return Pipeline(
         steps=[
             ("preprocessor", preprocessor),
@@ -143,12 +143,12 @@ def split_feature_table(
 
 
 def score_partition(partition: pd.DataFrame) -> dict[str, float | None]:
-    roc_auc = safe_roc_auc(partition["target_direction"], partition["prediction_probability"])
+    roc_auc = safe_roc_auc(partition["target"], partition["prediction_probability"])
     return {
         "accuracy": rounded_metric(
-            accuracy_score(partition["target_direction"], partition["predicted_label"])
+            accuracy_score(partition["target"], partition["predicted_label"])
         ),
-        "f1": rounded_metric(f1_score(partition["target_direction"], partition["predicted_label"])),
+        "f1": rounded_metric(f1_score(partition["target"], partition["predicted_label"])),
         "roc_auc": rounded_metric(roc_auc),
         "prediction_positive_ratio": rounded_metric(partition["predicted_label"].mean()),
         "test_rows": int(len(partition)),
@@ -165,9 +165,9 @@ def run_scenarios(
     per_symbol_rows: list[dict[str, object]] = []
     prediction_frames: list[pd.DataFrame] = []
 
-    train_inputs = train_frame[["symbol"] + feature_columns()]
-    test_inputs = test_frame[["symbol"] + feature_columns()]
-    y_train = train_frame["target_direction"]
+    train_inputs = train_frame[["symbol"] + features_list]
+    test_inputs = test_frame[["symbol"] + features_list]
+    y_train = train_frame["target"]
 
     total_scenarios = len(scenarios)
 
@@ -184,7 +184,7 @@ def run_scenarios(
         predicted_labels = (probabilities >= 0.5).astype(int)
 
         scenario_predictions = test_frame[
-            ["date", "symbol", "close", "future_return_1d", "target_direction"]
+            ["date", "symbol", "close", "return_1d", "target"]
         ].copy()
         scenario_predictions["scenario_name"] = scenario["scenario_name"]
         scenario_predictions["feature_set"] = scenario["feature_set"]
@@ -244,13 +244,13 @@ def main() -> None:
 
     print("")
     print("[2/4] Building feature table")
-    feature_table = build_feature_table(raw_data)
+    feature_table = feature_pipeline.fit_transform(raw_data)
     feature_table = feature_table.replace([np.inf, -np.inf], pd.NA)
     feature_table = feature_table.dropna(
-        subset=feature_columns() + ["future_return_1d", "target_direction"]
+        subset=features_list + ["return_1d", "target"]
     ).reset_index(drop=True)
     print(f"  rows:             {len(feature_table)}")
-    print(f"  numeric_features: {len(feature_columns())}")
+    print(f"  numeric_features: {len(features_list)}")
 
     feature_output = Path(args.feature_output)
     feature_output.parent.mkdir(parents=True, exist_ok=True)
@@ -295,6 +295,26 @@ def main() -> None:
         print(f"  notes:              {notes_path}")
     print(f"  total_time_s:       {round(time.perf_counter() - total_start, 2)}")
 
+
+features_list = [
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "ema_12",
+    "ema_26",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "rsi_14",
+    "bb_mid",
+    "bb_std",
+    "bb_upper",
+    "bb_lower",
+    "vol_price_divergence",
+    "return_1d",
+    "ma_gap_10",
+    "volatility_5d",
+]
 
 if __name__ == "__main__":
     main()
