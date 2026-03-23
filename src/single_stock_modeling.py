@@ -6,7 +6,13 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+)
 from sklearn.model_selection import train_test_split
 import xgboost as xgb
 import torch
@@ -31,6 +37,7 @@ METRICS = {
     "precision": precision_score,
     "recall": recall_score,
     "f1": f1_score,
+    "roc_auc": roc_auc_score,
 }
 
 
@@ -363,6 +370,10 @@ def evaluate_model(
     Returns:
         Dict: 包含各种评估指标的字典
     """
+    # 初始化预测结果和概率
+    y_pred = None
+    y_pred_prob = None
+
     # 对于CNN模型，需要创建序列数据
     if time_steps is not None:
         X_seq, y_seq = prepare_sequences(X_test, y_test, time_steps)
@@ -383,11 +394,22 @@ def evaluate_model(
     else:
         # 对于非CNN模型，使用原始预测方法
         y_pred = model.predict(X_test)
+        y_pred_prob = model.predict_proba(X_test)[:, 1]  # 获取正类的概率
 
     # 计算评估指标
     results = {}
     for metric_name, metric_func in METRICS.items():
-        results[metric_name] = metric_func(y_test, y_pred)
+        try:
+            if metric_name == "roc_auc":
+                # ROC-AUC需要概率值
+                results[metric_name] = metric_func(y_test, y_pred_prob)
+            else:
+                # 其他指标使用二分类预测
+                results[metric_name] = metric_func(y_test, y_pred)
+        except Exception as e:
+            # 处理可能的计算错误
+            logger.warning(f"Error calculating {metric_name}: {str(e)}")
+            results[metric_name] = 0.0
 
     return results
 
@@ -503,8 +525,6 @@ def run_single_stock_experiment(
     }
 
 
-
-
 def compare_models(results: List[Dict]) -> pd.DataFrame:
     """比较不同股票和模型的结果，并生成简单可视化"""
     comparison_data = []
@@ -518,61 +538,66 @@ def compare_models(results: List[Dict]) -> pd.DataFrame:
                 comparison_data.append(row)
 
     comparison_df = pd.DataFrame(comparison_data)
-    
+
     # 简单可视化
     plt.figure(figsize=(15, 10))
-    
+
     # 子图1：准确率比较
     plt.subplot(2, 2, 1)
-    pivot_acc = comparison_df.pivot(index='symbol', columns='model', values='accuracy')
-    pivot_acc.plot(kind='bar', ax=plt.gca())
-    plt.title('Accuracy Comparison by Stock and Model')
-    plt.xlabel('stock symbol')
-    plt.ylabel('Accuracy')
-    plt.legend(title='Model')
+    pivot_acc = comparison_df.pivot(index="symbol", columns="model", values="accuracy")
+    pivot_acc.plot(kind="bar", ax=plt.gca())
+    plt.title("Accuracy Comparison by Stock and Model")
+    plt.xlabel("stock symbol")
+    plt.ylabel("Accuracy")
+    plt.legend(title="Model")
     plt.xticks(rotation=45)
-    
-    # 子图2：模型平均性能
+
+    # 子图2：模型平均性能（包含ROC-AUC）
     plt.subplot(2, 2, 2)
-    model_avg = comparison_df.groupby('model')[['accuracy', 'precision', 'recall', 'f1']].mean()
-    model_avg.plot(kind='bar', ax=plt.gca())
-    plt.title('Average Performance by Model')
-    plt.xlabel('Model')
-    plt.ylabel('Average Score')
-    plt.legend(title='Metrics')
+    model_avg = comparison_df.groupby("model")[
+        ["accuracy", "precision", "recall", "f1", "roc_auc"]
+    ].mean()
+    model_avg.plot(kind="bar", ax=plt.gca())
+    plt.title("Average Performance by Model")
+    plt.xlabel("Model")
+    plt.ylabel("Average Score")
+    plt.legend(title="Metrics")
     plt.xticks(rotation=0)
-    
-    # 子图3：热力图
+
+    # 子图3：ROC-AUC热力图
     plt.subplot(2, 2, 3)
-    pivot_all = comparison_df.pivot(index='symbol', columns='model', values='accuracy')
-    sns.heatmap(pivot_all, annot=True, fmt='.3f', cmap='YlOrRd', 
-                cbar_kws={'label': 'Accuracy'})
-    plt.title('Accuracy Heatmap')
-    
+    pivot_roc = comparison_df.pivot(index="symbol", columns="model", values="roc_auc")
+    sns.heatmap(
+        pivot_roc, annot=True, fmt=".3f", cmap="YlOrRd", cbar_kws={"label": "ROC-AUC"}
+    )
+    plt.title("ROC-AUC Heatmap")
+
     # 子图4：箱线图（模型稳定性）
     plt.subplot(2, 2, 4)
-    comparison_df.boxplot(column='accuracy', by='model', ax=plt.gca())
-    plt.title('Stability of Models (Accuracy Distribution)')
-    plt.suptitle('')
-    plt.xlabel('Model')
-    plt.ylabel('Accuracy')
-    
+    comparison_df.boxplot(column="roc_auc", by="model", ax=plt.gca())
+    plt.title("Stability of Models (ROC-AUC Distribution)")
+    plt.suptitle("")
+    plt.xlabel("Model")
+    plt.ylabel("ROC-AUC")
+
     plt.tight_layout()
     plt.show()
-    
-    # 打印关键信息到控制台
-    print("\n" + "="*50)
-    print("compare_models")
-    print("="*50)
-    print("\nbest combination:")
-    best = comparison_df.loc[comparison_df['accuracy'].idxmax()]
-    print(f"  Stock: {best['symbol']}, Model: {best['model']}, Accuracy: {best['accuracy']:.4f}")
 
-    print("\nAverage Accuracy by Model:")
-    for model in comparison_df['model'].unique():
-        avg_acc = comparison_df[comparison_df['model']==model]['accuracy'].mean()
-        print(f"  {model}: {avg_acc:.4f}")
-    
+    # 打印关键信息到控制台
+    print("\n" + "=" * 50)
+    print("compare_models")
+    print("=" * 50)
+    print("\nbest combination:")
+    best = comparison_df.loc[comparison_df["roc_auc"].idxmax()]
+    print(
+        f"  Stock: {best['symbol']}, Model: {best['model']}, ROC-AUC: {best['roc_auc']:.4f}"
+    )
+
+    print("\nAverage ROC-AUC by Model:")
+    for model in comparison_df["model"].unique():
+        avg_roc = comparison_df[comparison_df["model"] == model]["roc_auc"].mean()
+        print(f"  {model}: {avg_roc:.4f}")
+
     return comparison_df
 
 
