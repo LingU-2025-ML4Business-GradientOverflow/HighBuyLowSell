@@ -1,14 +1,10 @@
-from __future__ import annotations
-
 import argparse
 import time
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.pipeline import Pipeline
@@ -21,7 +17,9 @@ from src.feature_pipeline_universal import feature_pipeline
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train pooled issue3B baseline models.")
+    parser = argparse.ArgumentParser(
+        description="Train pooled issue3B baseline models."
+    )
     parser.add_argument(
         "--input",
         default="data/raw/yahoo_daily_prices.csv",
@@ -104,7 +102,9 @@ def build_model_factories() -> tuple[dict[str, object], list[str]]:
     return models, notes
 
 
-def build_preprocessor(feature_set: str, numeric_columns: list[str]) -> ColumnTransformer:
+def build_preprocessor(
+    feature_set: str, numeric_columns: list[str]
+) -> ColumnTransformer:
     transformers: list[tuple[str, object, list[str]]] = [
         ("numeric", StandardScaler(), numeric_columns),
     ]
@@ -121,7 +121,9 @@ def build_preprocessor(feature_set: str, numeric_columns: list[str]) -> ColumnTr
     return ColumnTransformer(transformers=transformers)
 
 
-def build_estimator(model_name: str, feature_set: str, models: dict[str, object]) -> Pipeline:
+def build_estimator(
+    model_name: str, feature_set: str, models: dict[str, object]
+) -> Pipeline:
     estimator = clone(models[model_name])
     preprocessor = build_preprocessor(feature_set, features_list)
     return Pipeline(
@@ -148,9 +150,13 @@ def score_partition(partition: pd.DataFrame) -> dict[str, float | None]:
         "accuracy": rounded_metric(
             accuracy_score(partition["target"], partition["predicted_label"])
         ),
-        "f1": rounded_metric(f1_score(partition["target"], partition["predicted_label"])),
+        "f1": rounded_metric(
+            f1_score(partition["target"], partition["predicted_label"])
+        ),
         "roc_auc": rounded_metric(roc_auc),
-        "prediction_positive_ratio": rounded_metric(partition["predicted_label"].mean()),
+        "prediction_positive_ratio": rounded_metric(
+            partition["predicted_label"].mean()
+        ),
         "test_rows": int(len(partition)),
     }
 
@@ -177,7 +183,9 @@ def run_scenarios(
         print(f"[S{index}/{total_scenarios}] {scenario['display_name']}")
         print(f"  key:   {scenario['scenario_name']}")
         print(f"  input: {scenario['feature_set']} + {scenario['model_name']}")
-        estimator = build_estimator(scenario["model_name"], scenario["feature_set"], models)
+        estimator = build_estimator(
+            scenario["model_name"], scenario["feature_set"], models
+        )
         estimator.fit(train_inputs, y_train)
 
         probabilities = estimator.predict_proba(test_inputs)[:, 1]
@@ -199,7 +207,11 @@ def run_scenarios(
                 "scenario_name": scenario["scenario_name"],
                 "feature_set": scenario["feature_set"],
                 "model_name": scenario["model_name"],
-                "feature_count": int(estimator.named_steps["preprocessor"].get_feature_names_out().shape[0]),
+                "feature_count": int(
+                    estimator.named_steps["preprocessor"]
+                    .get_feature_names_out()
+                    .shape[0]
+                ),
                 "train_rows": int(len(train_frame)),
                 **summary_metrics,
             }
@@ -209,7 +221,9 @@ def run_scenarios(
         print(f"    accuracy:               {summary_metrics['accuracy']}")
         print(f"    f1:                     {summary_metrics['f1']}")
         print(f"    roc_auc:                {summary_metrics['roc_auc']}")
-        print(f"    prediction_pos_ratio:   {summary_metrics['prediction_positive_ratio']}")
+        print(
+            f"    prediction_pos_ratio:   {summary_metrics['prediction_positive_ratio']}"
+        )
         print(f"  time_s: {elapsed}")
 
         for symbol, symbol_frame in scenario_predictions.groupby("symbol", sort=True):
@@ -266,7 +280,9 @@ def main() -> None:
 
     print("")
     print("[4/4] Running scenarios")
-    scenario_metrics, per_symbol_metrics, predictions, notes = run_scenarios(train_frame, test_frame)
+    scenario_metrics, per_symbol_metrics, predictions, notes = run_scenarios(
+        train_frame, test_frame
+    )
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
