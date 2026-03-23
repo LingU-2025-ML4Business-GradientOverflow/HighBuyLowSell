@@ -13,14 +13,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from xgboost import XGBClassifier
 
-try:
-    from xgboost import XGBClassifier
-
-    XGBOOST_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - environment dependent
-    XGBClassifier = None
-    XGBOOST_IMPORT_ERROR = str(exc)
 
 from data import load_stock_data
 from features import build_feature_table, feature_columns
@@ -97,27 +91,15 @@ def build_model_factories() -> tuple[dict[str, object], list[str]]:
         "logistic_regression": LogisticRegression(max_iter=1000),
     }
 
-    if XGBClassifier is not None:
-        models["xgboost"] = XGBClassifier(
-            n_estimators=200,
-            max_depth=4,
-            learning_rate=0.05,
-            subsample=0.9,
-            colsample_bytree=0.9,
-            eval_metric="logloss",
-            random_state=42,
-        )
-    else:
-        models["xgboost"] = HistGradientBoostingClassifier(
-            max_depth=4,
-            learning_rate=0.05,
-            max_iter=200,
-            random_state=42,
-        )
-        notes.append(
-            "XGBoost unavailable in this environment; used HistGradientBoostingClassifier as fallback for xgboost scenarios."
-        )
-        notes.append(f"XGBoost import error: {XGBOOST_IMPORT_ERROR}")
+    models["xgboost"] = XGBClassifier(
+        n_estimators=200,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        eval_metric="logloss",
+        random_state=42,
+    )
 
     return models, notes
 
