@@ -81,65 +81,79 @@ class AdvancedCompanySpecificTransformer(BaseEstimator, TransformerMixin):
 
         # 1. NVDA
         nvda_m = df["symbol"] == "NVDA"
-        df.loc[nvda_m, "nvda_compute_frenzy"] = df["volume"] * df["return_1d"].abs()
-        df.loc[nvda_m, "nvda_supply_momentum"] = df["return_5d"] / (
-            df["volatility_5d"] + 1e-6
+        df.loc[nvda_m, "nvda_compute_frenzy"] = (
+            df.loc[nvda_m, "volume"] * df.loc[nvda_m, "return_1d"].abs()
         )
-        df.loc[nvda_m, "nvda_price_overheat"] = df["close"] / (
-            df["close"].rolling(20).mean() + 1e-6
+        df.loc[nvda_m, "nvda_supply_momentum"] = df.loc[nvda_m, "return_5d"] / (
+            df.loc[nvda_m, "volatility_5d"] + 1e-6
+        )
+        df.loc[nvda_m, "nvda_price_overheat"] = df.loc[nvda_m, "close"] / (
+            df.loc[nvda_m, "close"].rolling(20).mean() + 1e-6
         )
 
         # 2. MSFT
         msft_m = df["symbol"] == "MSFT"
-        df.loc[msft_m, "msft_efficiency_ratio"] = df["return_5d"] / (
-            df["return_1d"].abs().rolling(5).sum() + 1e-6
+        df.loc[msft_m, "msft_efficiency_ratio"] = df.loc[msft_m, "return_5d"] / (
+            df.loc[msft_m, "return_1d"].abs().rolling(5).sum() + 1e-6
         )
-        df.loc[msft_m, "msft_trend_consistency"] = df["ma_gap_10"] - df["ma_gap_5"]
-        df.loc[msft_m, "msft_inst_accumulation"] = df["volume"] * df["close"]
+        df.loc[msft_m, "msft_trend_consistency"] = (
+            df.loc[msft_m, "ma_gap_10"] - df.loc[msft_m, "ma_gap_5"]
+        )
+        df.loc[msft_m, "msft_inst_accumulation"] = (
+            df.loc[msft_m, "volume"] * df.loc[msft_m, "close"]
+        )
 
         # 3. GOOGL
         googl_m = df["symbol"] == "GOOGL"
-        df.loc[googl_m, "googl_ad_volatility"] = df["volatility_5d"].rolling(10).std()
+        df.loc[googl_m, "googl_ad_volatility"] = (
+            df.loc[googl_m, "volatility_5d"].rolling(10).std()
+        )
         df.loc[googl_m, "googl_mean_reversion"] = (
-            df["close"] - df["close"].rolling(20).mean()
-        ) / (df["close"].rolling(20).std() + 1e-6)
-        df.loc[googl_m, "googl_liquidity_density"] = df["volume"] / (
-            df["high"] - df["low"] + 1e-6
+            df.loc[googl_m, "close"] - df.loc[googl_m, "close"].rolling(20).mean()
+        ) / (df.loc[googl_m, "close"].rolling(20).std() + 1e-6)
+        df.loc[googl_m, "googl_liquidity_density"] = df.loc[googl_m, "volume"] / (
+            df.loc[googl_m, "high"] - df.loc[googl_m, "low"] + 1e-6
         )
 
         # 4. 0700.HK (Tencent)
         hk_m = df["symbol"] == "0700.HK"
         df.loc[hk_m, "tencent_policy_shock"] = (
-            df["volume_change_1d"].abs() * df["return_1d"]
+            df.loc[hk_m, "volume_change_1d"].abs() * df.loc[hk_m, "return_1d"]
         )
-        df.loc[hk_m, "tencent_capital_inflow"] = df["volume"] / (
-            df["volume"].rolling(20).mean() + 1e-6
+        df.loc[hk_m, "tencent_capital_inflow"] = df.loc[hk_m, "volume"] / (
+            df.loc[hk_m, "volume"].rolling(20).mean() + 1e-6
         )
-        df.loc[hk_m, "tencent_gap_dynamic"] = (df["open"] - df["close"].shift(1)) / (
-            df["close"].shift(1) + 1e-6
-        )
+        df.loc[hk_m, "tencent_gap_dynamic"] = (
+            df.loc[hk_m, "open"] - df.loc[hk_m, "close"].shift(1)
+        ) / (df.loc[hk_m, "close"].shift(1) + 1e-6)
 
         # 5. BABA
         baba_m = df["symbol"] == "BABA"
-        df.loc[baba_m, "baba_retail_inflection"] = df["ma_gap_5"].diff()
-        df.loc[baba_m, "baba_vol_clustering"] = df["volatility_5d"] / (
-            df["volatility_5d"].rolling(20).mean() + 1e-6
+        df.loc[baba_m, "baba_retail_inflection"] = df.loc[baba_m, "ma_gap_5"].diff()
+        df.loc[baba_m, "baba_vol_clustering"] = df.loc[baba_m, "volatility_5d"] / (
+            df.loc[baba_m, "volatility_5d"].rolling(20).mean() + 1e-6
         )
-        df.loc[baba_m, "baba_pv_divergence"] = df["volume_change_1d"] - df["return_1d"]
+        df.loc[baba_m, "baba_pv_divergence"] = (
+            df.loc[baba_m, "volume_change_1d"] - df.loc[baba_m, "return_1d"]
+        )
 
         # 6. BIDU
         bidu_m = df["symbol"] == "BIDU"
-        df.loc[bidu_m, "bidu_ai_breakout"] = df["return_1d"] * df["volume_change_1d"]
-        df.loc[bidu_m, "bidu_cash_stability"] = df["close"].rolling(10).median() / (
-            df["close"] + 1e-6
+        df.loc[bidu_m, "bidu_ai_breakout"] = (
+            df.loc[bidu_m, "return_1d"] * df.loc[bidu_m, "volume_change_1d"]
         )
-        df.loc[bidu_m, "bidu_rebound_force"] = df["low"].rolling(20).min() / (
-            df["close"] + 1e-6
-        )
+        df.loc[bidu_m, "bidu_cash_stability"] = df.loc[bidu_m, "close"].rolling(
+            10
+        ).median() / (df.loc[bidu_m, "close"] + 1e-6)
+        df.loc[bidu_m, "bidu_rebound_force"] = df.loc[bidu_m, "low"].rolling(
+            20
+        ).min() / (df.loc[bidu_m, "close"] + 1e-6)
 
         # --- Target Definition (Next day direction) ---
         # Next-day close > Today's close
-        df["target"] = (df["close"].shift(-1) > df["close"]).astype(int)
+        grouped = df.groupby("symbol")
+        df["target"] = grouped["close"].shift(-1) > df["close"]
+        df["target"] = df["target"].astype(int)
 
         return df.fillna(0)
 
