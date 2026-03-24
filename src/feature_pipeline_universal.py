@@ -87,12 +87,15 @@ class TechnicalIndicatorTransformer(BaseEstimator, TransformerMixin):
         )
 
         # --- 6. Target Definition (Next day direction) ---
-        # Next-day close > Today's close
-        df["target"] = (grouped["close"].shift(-1) > df["close"]).astype(int)
+        # Next-day close > Today's close. Drop the last row per symbol because
+        # it has no next-day label and would otherwise be coerced to class 0.
+        df["future_close"] = grouped["close"].shift(-1)
+        df = df.dropna(subset=["future_close"]).copy()
+        df["target"] = (df["future_close"] > df["close"]).astype(int)
 
         # Handle end-of-series NaNs for target and start-of-series NaNs for indicators
         # SMA20/RSI14/BB will create about 20 NaNs at the start of each symbol
-        df_clean = df.dropna().reset_index(drop=True)
+        df_clean = df.dropna().drop(columns=["future_close"]).reset_index(drop=True)
         return df_clean
 
 

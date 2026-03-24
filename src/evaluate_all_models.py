@@ -386,7 +386,7 @@ def evaluate_single_stock_models(
             time_steps = symbol_result["time_steps"]
 
             model_path = (
-                Path(model_dir) / "ssm_sf_cnn" / "models" / f"{symbol}_cnn_model.pth"
+                Path(model_dir) / "ssm_sf_cnn" / "models" / f"{symbol}_ssm_sf_cnn.pth"
             )
             if model_path.exists():
                 cnn_model = load_cnn_model(
@@ -587,7 +587,7 @@ def create_comprehensive_visualizations(
     feature_pipeline_comparison = comparison_df.copy()
     feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
         "model"
-    ].apply(lambda x: "Universal" if "universal" in x else "Specific")
+    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
     pipeline_avg = feature_pipeline_comparison.groupby("feature_pipeline")[
         ["accuracy", "precision", "recall", "f1", "roc_auc"]
     ].mean()
@@ -735,7 +735,7 @@ def compare_models(results: List[Dict]) -> pd.DataFrame:
     feature_pipeline_comparison = comparison_df.copy()
     feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
         "model"
-    ].apply(lambda x: "Universal" if "universal" in x else "Specific")
+    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
     for pipeline in feature_pipeline_comparison["feature_pipeline"].unique():
         avg_roc = feature_pipeline_comparison[
             feature_pipeline_comparison["feature_pipeline"] == pipeline
@@ -792,7 +792,7 @@ def generate_conclusions(comparison_df: pd.DataFrame) -> Dict:
     feature_pipeline_comparison = comparison_df.copy()
     feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
         "model"
-    ].apply(lambda x: "Universal" if "universal" in x else "Specific")
+    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
     pipeline_performance = (
         feature_pipeline_comparison.groupby("feature_pipeline")["roc_auc"]
         .mean()
@@ -891,6 +891,11 @@ def main() -> None:
 
     # Generate conclusions
     conclusions = generate_conclusions(comparison_df)
+
+    output_path = Path(args.output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    with open(output_path / "conclusions.json", "w") as f:
+        json.dump(conclusions, f, indent=2, default=str)
 
     print("\nExperiment Conclusions:")
     print(f"Best Performance: {conclusions['best_performing']}")

@@ -150,12 +150,14 @@ class AdvancedCompanySpecificTransformer(BaseEstimator, TransformerMixin):
         ).min() / (df.loc[bidu_m, "close"] + 1e-6)
 
         # --- Target Definition (Next day direction) ---
-        # Next-day close > Today's close
+        # Next-day close > Today's close. Drop the last row per symbol because
+        # it has no next-day label and would otherwise be coerced to class 0.
         grouped = df.groupby("symbol")
-        df["target"] = grouped["close"].shift(-1) > df["close"]
-        df["target"] = df["target"].astype(int)
+        df["future_close"] = grouped["close"].shift(-1)
+        df = df.dropna(subset=["future_close"]).copy()
+        df["target"] = (df["future_close"] > df["close"]).astype(int)
 
-        return df.fillna(0)
+        return df.drop(columns=["future_close"]).fillna(0).reset_index(drop=True)
 
 
 # Instantiate Pipeline
