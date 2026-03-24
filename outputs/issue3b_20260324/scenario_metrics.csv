@@ -1,0 +1,3 @@
+scenario_name,feature_set,model_name,feature_count,train_rows,accuracy,f1,roc_auc,prediction_positive_ratio,test_rows
+pooled_numeric_only_logistic_regression,numeric_only,logistic_regression,17,3520,0.4801,0.5239,0.4933,0.6266,881
+pooled_numeric_only_xgboost,numeric_only,xgboost,17,3520,0.4767,0.5059,0.4878,0.5936,881
