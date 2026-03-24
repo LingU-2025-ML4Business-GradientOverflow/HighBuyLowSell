@@ -1,0 +1,35 @@
+{
+  "best_performing": {
+    "symbol": "NVDA",
+    "model": "xgboost",
+    "roc_auc": 0.5435616438356164
+  },
+  "model_stability": {
+    "cnn_specific": 0.0032400657973322327,
+    "cnn_universal": 0.016849339777238348,
+    "logistic_regression": 0.016578997570276255,
+    "xgboost": 0.02328644888342232
+  },
+  "stock_modelability": {
+    "0700.HK": 0.4893800229621125,
+    "BABA": 0.5060639057159355,
+    "BIDU": 0.5012820512820513,
+    "GOOGL": 0.49864770437059597,
+    "MSFT": 0.49437995209139485,
+    "NVDA": 0.5013714938030007
+  },
+  "model_type_performance": {
+    "CNN": 0.49863308946105084,
+    "Traditional": 0.4984086206139795
+  },
+  "pipeline_performance": {
+    "Specific": 0.5013227513227513,
+    "Universal": 0.49758688960910313
+  },
+  "recommendations": {
+    "recommended_symbol": "BABA",
+    "recommended_model": "cnn_specific",
+    "recommended_model_type": "CNN",
+    "recommended_pipeline": "Specific"
+  }
+}
