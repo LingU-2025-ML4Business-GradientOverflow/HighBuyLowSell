@@ -60,13 +60,13 @@ def rounded_metric(value: float | None) -> float | None:
 def build_scenarios() -> list[dict[str, str]]:
     return [
         {
-            "scenario_name": "psm_numeric_only_logistic_regression",
+            "scenario_name": "psm_logistic_regression",
             "display_name": "numeric / logistic",
             "feature_set": "numeric_only",
             "model_name": "logistic_regression",
         },
         {
-            "scenario_name": "psm_numeric_only_xgboost",
+            "scenario_name": "psm_xgboost",
             "display_name": "numeric / xgboost",
             "feature_set": "numeric_only",
             "model_name": "xgboost",

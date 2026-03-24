@@ -485,9 +485,14 @@ def evaluate_single_stock_models(
                     results[psm_key] = model_results
 
                     feature_cols = X_test.columns.tolist()
+                    actual_model = (
+                        model.named_steps["model"]
+                        if hasattr(model, "named_steps")
+                        else model
+                    )
                     results["feature_importance"][psm_key] = (
                         get_traditional_feature_importance(
-                            model, feature_cols, model_name
+                            actual_model, feature_cols, model_name
                         )
                     )
 
@@ -567,11 +572,16 @@ def create_comprehensive_visualizations(
 ) -> None:
     """
     Create comprehensive visualizations including overall ROC curves.
+    Each subplot will be saved individually.
     """
     sns.set_style("whitegrid")
     plt.rcParams["figure.figsize"] = (20, 18)
 
-    fig, axes = plt.subplots(3, 3, figsize=(20, 18))
+    output_path = Path(output_dir)
+    figures_dir = output_path / "figures"
+    figures_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(4, 3, figsize=(20, 18))
     fig.suptitle("Comprehensive Model Comparison", fontsize=16)
 
     # 1. Accuracy comparison by stock and model
@@ -583,6 +593,7 @@ def create_comprehensive_visualizations(
     ax.set_ylabel("Accuracy")
     ax.legend(title="Model")
     ax.tick_params(axis="x", rotation=45)
+    plt.savefig(figures_dir / "1_accuracy_comparison.png", dpi=300, bbox_inches="tight")
 
     # 2. Average model performance
     ax = axes[0, 1]
@@ -595,6 +606,7 @@ def create_comprehensive_visualizations(
     ax.set_ylabel("Average Score")
     ax.legend(title="Metrics")
     ax.tick_params(axis="x", rotation=0)
+    plt.savefig(figures_dir / "2_average_performance.png", dpi=300, bbox_inches="tight")
 
     # 3. Accuracy heatmap
     ax = axes[0, 2]
@@ -608,6 +620,7 @@ def create_comprehensive_visualizations(
         ax=ax,
     )
     ax.set_title("Accuracy Heatmap")
+    plt.savefig(figures_dir / "3_accuracy_heatmap.png", dpi=300, bbox_inches="tight")
 
     # 4. Model stability (Accuracy distribution)
     ax = axes[1, 0]
@@ -616,6 +629,7 @@ def create_comprehensive_visualizations(
     ax.set_xlabel("Model")
     ax.set_ylabel("Accuracy")
     plt.suptitle("")
+    plt.savefig(figures_dir / "4_model_stability.png", dpi=300, bbox_inches="tight")
 
     # 5. Universal feature model comparison (CNN vs Traditional)
     ax = axes[1, 1]
@@ -624,7 +638,6 @@ def create_comprehensive_visualizations(
         | (comparison_df["model"].isin(["logistic_regression", "xgboost"]))
     ].copy()
 
-    # 为每个模型单独创建条形图
     models_to_plot = ["logistic_regression", "xgboost", "cnn_universal"]
     metrics = ["accuracy", "precision", "recall", "f1"]
     x = np.arange(len(metrics))
@@ -645,86 +658,132 @@ def create_comprehensive_visualizations(
     ax.legend(title="Model")
     ax.tick_params(axis="x", rotation=45)
     ax.grid(axis="y", alpha=0.3)
+    plt.savefig(
+        figures_dir / "5_universal_features_comparison.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
 
-    # 6. Single Stock vs Pooled Model Comparison (Universal Features)
+    # 6. Single Stock Models (Universal Features)
     ax = axes[1, 2]
-
-    # 打印所有可用的模型名称，用于调试
-    print("Available models in comparison_df:", comparison_df["model"].unique())
-
-    # 筛选单股和多股模型
-    ssm_psm_comparison = comparison_df[
-        comparison_df["model"].isin(
-            ["logistic_regression", "xgboost", "psm_logistic_regression", "psm_xgboost"]
-        )
+    ssm_comparison = comparison_df[
+        comparison_df["model"].isin(["logistic_regression", "xgboost"])
     ].copy()
 
-    # 打印筛选后的模型名称，用于调试
-    print("Models in ssm_psm_comparison:", ssm_psm_comparison["model"].unique())
+    if not ssm_comparison.empty:
+        models = ["logistic_regression", "xgboost"]
+        metrics = ["accuracy", "precision", "recall", "f1"]
 
-    # 检查是否有数据
-    if ssm_psm_comparison.empty:
+        # 计算每个模型在每个指标上的平均值
+        model_avg_metrics = ssm_comparison.groupby("model")[metrics].mean()
+
+        # 创建字典存储所有指标值
+        metrics_dict = {}
+        for model_name in models:
+            if model_name in model_avg_metrics.index:
+                for metric in metrics:
+                    key = f"{model_name}_{metric}"
+                    metrics_dict[key] = model_avg_metrics.loc[model_name, metric]
+
+        # 打印字典内容（可选）
+        print("\nSingle Stock Models Metrics Dictionary:")
+        for key, value in metrics_dict.items():
+            print(f"  {key}: {value:.4f}")
+
+        # 使用metrics_dict绘制条形图
+        x = np.arange(len(models))
+        width = 0.2  # 调整宽度以容纳4个指标
+
+        # 为每个指标绘制条形
+        for i, metric in enumerate(metrics):
+            values = []
+            for model_name in models:
+                key = f"{model_name}_{metric}"
+                values.append(metrics_dict.get(key, 0))
+
+            offset = width * (i - 1.5)  # 调整偏移量使4个条形居中
+            ax.bar(x + offset, values, width, label=metric)
+
+        ax.set_title("Single Stock Models (Universal Features)")
+        ax.set_xlabel("Model")
+        ax.set_xticks(x)
+        ax.set_xticklabels(models)
+        ax.legend(title="Metrics")  # 图例显示指标名称
+        ax.tick_params(axis="x")
+        ax.grid(axis="y", alpha=0.3)
+    else:
         ax.text(
             0.5,
             0.5,
-            "No data available for SSM vs PSM comparison",
+            "No data available",
             ha="center",
             va="center",
             transform=ax.transAxes,
         )
-        ax.set_title("Single Stock vs Pooled Models (Universal Features)")
-        ax.set_xlabel("Model Type")
-        ax.set_ylabel("Average Score")
-    else:
-        # 标记模型类型（单股或多股）
-        ssm_psm_comparison["model_type"] = ssm_psm_comparison["model"].apply(
-            lambda x: "Pooled" if x.startswith("psm_") else "Single Stock"
-        )
+        ax.set_title("Single Stock Models (Universal Features)")
+    plt.savefig(figures_dir / "6_single_stock_models.png", dpi=300, bbox_inches="tight")
 
-        # 标记算法类型
-        ssm_psm_comparison["algorithm"] = ssm_psm_comparison["model"].apply(
-            lambda x: "Logistic Regression" if "logistic" in x else "XGBoost"
-        )
+    # 7. Pooled Models (Universal Features)
+    ax = axes[3, 0]
+    psm_comparison = comparison_df[
+        comparison_df["model"].isin(["psm_logistic_regression", "psm_xgboost"])
+    ].copy()
 
-        # 打印模型类型分布，用于调试
-        print(
-            "Model type distribution:", ssm_psm_comparison["model_type"].value_counts()
-        )
-        print("Algorithm distribution:", ssm_psm_comparison["algorithm"].value_counts())
-
-        # 为每个模型类型和算法组合创建条形图
-        model_combinations = [
-            ("Single Stock", "Logistic Regression", "logistic_regression"),
-            ("Single Stock", "XGBoost", "xgboost"),
-            ("Pooled", "Logistic Regression", "psm_logistic_regression"),
-            ("Pooled", "XGBoost", "psm_xgboost"),
-        ]
-
+    if not psm_comparison.empty:
+        models = ["psm_logistic_regression", "psm_xgboost"]
+        model_labels = ["Logistic Regression", "XGBoost"]
         metrics = ["accuracy", "precision", "recall", "f1"]
-        x = np.arange(len(metrics))
-        width = 0.2
 
-        for i, (model_type, algorithm, model_name) in enumerate(model_combinations):
-            model_data = ssm_psm_comparison[ssm_psm_comparison["model"] == model_name]
-            if not model_data.empty:
-                avg_metrics = model_data[metrics].mean()
-                offset = width * (i - 1.5)
-                ax.bar(
-                    x + offset, avg_metrics, width, label=f"{model_type} {algorithm}"
-                )
+        # 计算每个模型在每个指标上的平均值
+        model_avg_metrics = psm_comparison.groupby("model")[metrics].mean()
 
-        ax.set_title("Single Stock vs Pooled Models (Universal Features)")
-        ax.set_xlabel("Metrics")
-        ax.set_ylabel("Average Score")
+        # 创建字典存储所有指标值
+        metrics_dict = {}
+        for model_name in models:
+            if model_name in model_avg_metrics.index:
+                for metric in metrics:
+                    key = f"{model_name}_{metric}"
+                    metrics_dict[key] = model_avg_metrics.loc[model_name, metric]
+
+        # 打印字典内容（可选）
+        print("\nPooled Models Metrics Dictionary:")
+        for key, value in metrics_dict.items():
+            print(f"  {key}: {value:.4f}")
+
+        # 使用metrics_dict绘制条形图
+        x = np.arange(len(models))
+        width = 0.2  # 调整宽度以容纳4个指标
+
+        # 为每个指标绘制条形
+        for i, metric in enumerate(metrics):
+            values = []
+            for model_name in models:
+                key = f"{model_name}_{metric}"
+                values.append(metrics_dict.get(key, 0))
+
+            offset = width * (i - 1.5)  # 调整偏移量使4个条形居中
+            ax.bar(x + offset, values, width, label=metric)
+
+        ax.set_title("Pooled Models (Universal Features)")
+        ax.set_xlabel("Model")
         ax.set_xticks(x)
-        ax.set_xticklabels(metrics)
-        ax.legend(
-            title="Model Type & Algorithm", bbox_to_anchor=(1.05, 1), loc="upper left"
-        )
-        ax.tick_params(axis="x", rotation=45)
+        ax.set_xticklabels(model_labels)
+        ax.legend(title="Metrics")  # 图例显示指标名称
+        ax.tick_params(axis="x")
         ax.grid(axis="y", alpha=0.3)
+    else:
+        ax.text(
+            0.5,
+            0.5,
+            "No data available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        ax.set_title("Pooled Models (Universal Features)")
+    plt.savefig(figures_dir / "7_pooled_models.png", dpi=300, bbox_inches="tight")
 
-    # 7. Precision-Recall comparison
+    # 8. Precision-Recall comparison
     ax = axes[2, 0]
     for model in comparison_df["model"].unique():
         model_data = comparison_df[comparison_df["model"] == model]
@@ -734,8 +793,9 @@ def create_comprehensive_visualizations(
     ax.set_ylabel("Recall")
     ax.legend()
     ax.grid(True)
+    plt.savefig(figures_dir / "8_precision_recall.png", dpi=300, bbox_inches="tight")
 
-    # 8. F1 Score comparison
+    # 9. F1 Score comparison
     ax = axes[2, 1]
     pivot_f1 = comparison_df.pivot(index="symbol", columns="model", values="f1")
     pivot_f1.plot(kind="bar", ax=ax)
@@ -744,8 +804,9 @@ def create_comprehensive_visualizations(
     ax.set_ylabel("F1 Score")
     ax.legend(title="Model")
     ax.tick_params(axis="x", rotation=45)
+    plt.savefig(figures_dir / "9_f1_score_comparison.png", dpi=300, bbox_inches="tight")
 
-    # 9. ROC Curves for all models (aggregated across stocks)
+    # 10. ROC Curves for all models (aggregated across stocks)
     ax = axes[2, 2]
     models_to_plot = comparison_df["model"].unique()
     colors = plt.cm.tab10(np.linspace(0, 1, len(models_to_plot)))
@@ -771,17 +832,16 @@ def create_comprehensive_visualizations(
     ax.set_title("ROC Curves for All Models (Aggregated)")
     ax.legend(loc="lower right", fontsize=8)
     ax.grid(alpha=0.3)
+    plt.savefig(figures_dir / "10_roc_curves.png", dpi=300, bbox_inches="tight")
 
-    # -1. Empty subplot to fill layout
-    # axes[3, 0].axis("off")
-    # axes[3, 1].axis("off")
-    # axes[3, 2].axis("off")
-
+    # Save comprehensive visualization
     plt.tight_layout()
-    # Save to output_dir (the main output directory)
-    output_path = Path(output_dir)
-    plt.savefig(output_path / "comprehensive_visualization.png", dpi=300)
+    plt.savefig(
+        output_path / "comprehensive_visualization.png", dpi=300, bbox_inches="tight"
+    )
     plt.show()
+
+    print(f"\nAll figures saved to {figures_dir}")
 
 
 def compare_models(results: List[Dict]) -> pd.DataFrame:
