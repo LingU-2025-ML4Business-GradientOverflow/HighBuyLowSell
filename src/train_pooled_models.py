@@ -13,7 +13,7 @@ from xgboost import XGBClassifier
 
 
 from data import load_stock_data
-from src.feature_pipeline_universal import feature_pipeline
+from feature_pipeline_universal import feature_pipeline
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,18 +68,6 @@ def build_scenarios() -> list[dict[str, str]]:
             "feature_set": "numeric_only",
             "model_name": "xgboost",
         },
-        {
-            "scenario_name": "pooled_numeric_plus_context_logistic_regression",
-            "display_name": "numeric+context / logistic",
-            "feature_set": "numeric_plus_context",
-            "model_name": "logistic_regression",
-        },
-        {
-            "scenario_name": "pooled_numeric_plus_context_xgboost",
-            "display_name": "numeric+context / xgboost",
-            "feature_set": "numeric_plus_context",
-            "model_name": "xgboost",
-        },
     ]
 
 
@@ -108,15 +96,6 @@ def build_preprocessor(
     transformers: list[tuple[str, object, list[str]]] = [
         ("numeric", StandardScaler(), numeric_columns),
     ]
-
-    if feature_set == "numeric_plus_context":
-        transformers.append(
-            (
-                "symbol",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
-                ["symbol"],
-            )
-        )
 
     return ColumnTransformer(transformers=transformers)
 
