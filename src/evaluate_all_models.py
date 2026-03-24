@@ -174,6 +174,9 @@ def evaluate_traditional_model(
     """
     y_pred = model.predict(X_test)
     y_pred_prob = model.predict_proba(X_test)[:, 1]  # positive class probability
+
+    threshold = 0.3
+    y_pred = (y_pred_prob >= threshold).astype(int)
     results = {}
 
     for metric_name, metric_func in METRICS.items():
@@ -302,13 +305,17 @@ def evaluate_single_stock_models(
         "xgboost": {},
         "cnn_specific": {},
         "cnn_universal": {},
+        "psm_logistic_regression": {},
+        "psm_xgboost": {},
         "feature_importance": {
             "logistic_regression": {},
             "xgboost": {},
             "cnn_specific": {},
             "cnn_universal": {},
+            "psm_logistic_regression": {},
+            "psm_xgboost": {},
         },
-        "prediction_files": {},  # store paths to saved predictions
+        "prediction_files": {},
     }
 
     # Evaluate traditional models (universal features)
@@ -386,7 +393,7 @@ def evaluate_single_stock_models(
             time_steps = symbol_result["time_steps"]
 
             model_path = (
-                Path(model_dir) / "ssm_sf_cnn" / "models" / f"{symbol}_ssm_sf_cnn.pth"
+                Path(model_dir) / "ssm_sf_cnn" / "models" / f"{symbol}_cnn_model.pth"
             )
             if model_path.exists():
                 cnn_model = load_cnn_model(
@@ -445,6 +452,50 @@ def evaluate_single_stock_models(
         print(
             f"Error evaluating CNN model with universal features for {symbol}: {str(e)}"
         )
+
+    # Evaluate PSM models universal features
+    try:
+        X_train, X_test, y_train, y_test = prepare_data(
+            data_path, symbol, "universal", test_size, random_state
+        )
+
+        results_path = Path(model_dir) / "psm_uf_trad" / "scenario_metrics.csv"
+        if results_path.exists():
+            psm_results = pd.read_csv(results_path)
+
+            symbol_psm_results = psm_results[psm_results["symbol"] == symbol]
+
+            for _, row in symbol_psm_results.iterrows():
+                model_name = row["model_name"]
+
+                model_path = (
+                    Path(model_dir)
+                    / "psm_uf_trad"
+                    / "models"
+                    / f"{symbol}_{model_name}.joblib"
+                )
+
+                if model_path.exists():
+                    model = load_traditional_model(str(model_path))
+                    model_results, y_true, y_pred_proba = evaluate_traditional_model(
+                        model, X_test, y_test
+                    )
+
+                    psm_key = f"psm_{model_name}"
+                    results[psm_key] = model_results
+
+                    feature_cols = X_test.columns.tolist()
+                    results["feature_importance"][psm_key] = (
+                        get_traditional_feature_importance(
+                            model, feature_cols, model_name
+                        )
+                    )
+
+                    results["prediction_files"][psm_key] = save_predictions(
+                        symbol, psm_key, y_true, y_pred_proba, output_path
+                    )
+    except Exception as e:
+        print(f"Error evaluating PSM models for {symbol}: {str(e)}")
 
     return results
 
@@ -520,7 +571,7 @@ def create_comprehensive_visualizations(
     sns.set_style("whitegrid")
     plt.rcParams["figure.figsize"] = (20, 18)
 
-    fig, axes = plt.subplots(4, 3, figsize=(20, 18))
+    fig, axes = plt.subplots(3, 3, figsize=(20, 18))
     fig.suptitle("Comprehensive Model Comparison", fontsize=16)
 
     # 1. Accuracy comparison by stock and model
@@ -545,58 +596,133 @@ def create_comprehensive_visualizations(
     ax.legend(title="Metrics")
     ax.tick_params(axis="x", rotation=0)
 
-    # 3. ROC-AUC heatmap
+    # 3. Accuracy heatmap
     ax = axes[0, 2]
-    pivot_roc = comparison_df.pivot(index="symbol", columns="model", values="roc_auc")
+    pivot_acc = comparison_df.pivot(index="symbol", columns="model", values="accuracy")
     sns.heatmap(
-        pivot_roc,
+        pivot_acc,
         annot=True,
         fmt=".3f",
         cmap="YlOrRd",
-        cbar_kws={"label": "ROC-AUC"},
+        cbar_kws={"label": "Accuracy"},
         ax=ax,
     )
-    ax.set_title("ROC-AUC Heatmap")
+    ax.set_title("Accuracy Heatmap")
 
-    # 4. Model stability (ROC-AUC distribution)
+    # 4. Model stability (Accuracy distribution)
     ax = axes[1, 0]
-    comparison_df.boxplot(column="roc_auc", by="model", ax=ax)
-    ax.set_title("Stability of Models (ROC-AUC Distribution)")
+    comparison_df.boxplot(column="accuracy", by="model", ax=ax)
+    ax.set_title("Stability of Models (Accuracy Distribution)")
     ax.set_xlabel("Model")
-    ax.set_ylabel("ROC-AUC")
+    ax.set_ylabel("Accuracy")
     plt.suptitle("")
 
-    # 5. Model type comparison
+    # 5. Universal feature model comparison (CNN vs Traditional)
     ax = axes[1, 1]
-    model_type_comparison = comparison_df.copy()
-    model_type_comparison["model_type"] = model_type_comparison["model"].apply(
-        lambda x: "CNN" if "cnn" in x else "Traditional"
-    )
-    model_type_avg = model_type_comparison.groupby("model_type")[
-        ["accuracy", "precision", "recall", "f1", "roc_auc"]
-    ].mean()
-    model_type_avg.plot(kind="bar", ax=ax)
-    ax.set_title("Average Performance by Model Type")
-    ax.set_xlabel("Model Type")
-    ax.set_ylabel("Average Score")
-    ax.legend(title="Metrics")
-    ax.tick_params(axis="x", rotation=0)
+    universal_comparison = comparison_df[
+        (comparison_df["model"] == "cnn_universal")
+        | (comparison_df["model"].isin(["logistic_regression", "xgboost"]))
+    ].copy()
 
-    # 6. Feature pipeline comparison
-    ax = axes[1, 2]
-    feature_pipeline_comparison = comparison_df.copy()
-    feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
-        "model"
-    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
-    pipeline_avg = feature_pipeline_comparison.groupby("feature_pipeline")[
-        ["accuracy", "precision", "recall", "f1", "roc_auc"]
-    ].mean()
-    pipeline_avg.plot(kind="bar", ax=ax)
-    ax.set_title("Average Performance by Feature Pipeline")
-    ax.set_xlabel("Feature Pipeline")
+    # 为每个模型单独创建条形图
+    models_to_plot = ["logistic_regression", "xgboost", "cnn_universal"]
+    metrics = ["accuracy", "precision", "recall", "f1"]
+    x = np.arange(len(metrics))
+    width = 0.25
+
+    for i, model in enumerate(models_to_plot):
+        model_data = universal_comparison[universal_comparison["model"] == model]
+        if not model_data.empty:
+            avg_metrics = model_data[metrics].mean()
+            offset = width * (i - 1)
+            ax.bar(x + offset, avg_metrics, width, label=model)
+
+    ax.set_title("Universal Features: Model Comparison")
+    ax.set_xlabel("Metrics")
     ax.set_ylabel("Average Score")
-    ax.legend(title="Metrics")
-    ax.tick_params(axis="x", rotation=0)
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics)
+    ax.legend(title="Model")
+    ax.tick_params(axis="x", rotation=45)
+    ax.grid(axis="y", alpha=0.3)
+
+    # 6. Single Stock vs Pooled Model Comparison (Universal Features)
+    ax = axes[1, 2]
+
+    # 打印所有可用的模型名称，用于调试
+    print("Available models in comparison_df:", comparison_df["model"].unique())
+
+    # 筛选单股和多股模型
+    ssm_psm_comparison = comparison_df[
+        comparison_df["model"].isin(
+            ["logistic_regression", "xgboost", "psm_logistic_regression", "psm_xgboost"]
+        )
+    ].copy()
+
+    # 打印筛选后的模型名称，用于调试
+    print("Models in ssm_psm_comparison:", ssm_psm_comparison["model"].unique())
+
+    # 检查是否有数据
+    if ssm_psm_comparison.empty:
+        ax.text(
+            0.5,
+            0.5,
+            "No data available for SSM vs PSM comparison",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        ax.set_title("Single Stock vs Pooled Models (Universal Features)")
+        ax.set_xlabel("Model Type")
+        ax.set_ylabel("Average Score")
+    else:
+        # 标记模型类型（单股或多股）
+        ssm_psm_comparison["model_type"] = ssm_psm_comparison["model"].apply(
+            lambda x: "Pooled" if x.startswith("psm_") else "Single Stock"
+        )
+
+        # 标记算法类型
+        ssm_psm_comparison["algorithm"] = ssm_psm_comparison["model"].apply(
+            lambda x: "Logistic Regression" if "logistic" in x else "XGBoost"
+        )
+
+        # 打印模型类型分布，用于调试
+        print(
+            "Model type distribution:", ssm_psm_comparison["model_type"].value_counts()
+        )
+        print("Algorithm distribution:", ssm_psm_comparison["algorithm"].value_counts())
+
+        # 为每个模型类型和算法组合创建条形图
+        model_combinations = [
+            ("Single Stock", "Logistic Regression", "logistic_regression"),
+            ("Single Stock", "XGBoost", "xgboost"),
+            ("Pooled", "Logistic Regression", "psm_logistic_regression"),
+            ("Pooled", "XGBoost", "psm_xgboost"),
+        ]
+
+        metrics = ["accuracy", "precision", "recall", "f1"]
+        x = np.arange(len(metrics))
+        width = 0.2
+
+        for i, (model_type, algorithm, model_name) in enumerate(model_combinations):
+            model_data = ssm_psm_comparison[ssm_psm_comparison["model"] == model_name]
+            if not model_data.empty:
+                avg_metrics = model_data[metrics].mean()
+                offset = width * (i - 1.5)
+                ax.bar(
+                    x + offset, avg_metrics, width, label=f"{model_type} {algorithm}"
+                )
+
+        ax.set_title("Single Stock vs Pooled Models (Universal Features)")
+        ax.set_xlabel("Metrics")
+        ax.set_ylabel("Average Score")
+        ax.set_xticks(x)
+        ax.set_xticklabels(metrics)
+        ax.legend(
+            title="Model Type & Algorithm", bbox_to_anchor=(1.05, 1), loc="upper left"
+        )
+        ax.tick_params(axis="x", rotation=45)
+        ax.grid(axis="y", alpha=0.3)
 
     # 7. Precision-Recall comparison
     ax = axes[2, 0]
@@ -619,32 +745,8 @@ def create_comprehensive_visualizations(
     ax.legend(title="Model")
     ax.tick_params(axis="x", rotation=45)
 
-    # 9. Overall model ranking
+    # 9. ROC Curves for all models (aggregated across stocks)
     ax = axes[2, 2]
-    model_ranking = comparison_df.groupby("model").agg(
-        {
-            "accuracy": "mean",
-            "precision": "mean",
-            "recall": "mean",
-            "f1": "mean",
-            "roc_auc": "mean",
-        }
-    )
-    model_ranking["overall_score"] = (
-        model_ranking["accuracy"] * 0.2
-        + model_ranking["precision"] * 0.2
-        + model_ranking["recall"] * 0.2
-        + model_ranking["f1"] * 0.2
-        + model_ranking["roc_auc"] * 0.2
-    )
-    model_ranking = model_ranking.sort_values("overall_score", ascending=False)
-    model_ranking["overall_score"].plot(kind="barh", ax=ax)
-    ax.set_title("Overall Model Ranking")
-    ax.set_xlabel("Overall Score")
-    ax.set_ylabel("Model")
-
-    # 10. ROC Curves for all models (aggregated across stocks)
-    ax = axes[3, 0]
     models_to_plot = comparison_df["model"].unique()
     colors = plt.cm.tab10(np.linspace(0, 1, len(models_to_plot)))
     for model, color in zip(models_to_plot, colors):
@@ -670,9 +772,10 @@ def create_comprehensive_visualizations(
     ax.legend(loc="lower right", fontsize=8)
     ax.grid(alpha=0.3)
 
-    # 11. Empty subplot to fill layout
-    axes[3, 1].axis("off")
-    axes[3, 2].axis("off")
+    # -1. Empty subplot to fill layout
+    # axes[3, 0].axis("off")
+    # axes[3, 1].axis("off")
+    # axes[3, 2].axis("off")
 
     plt.tight_layout()
     # Save to output_dir (the main output directory)
@@ -697,6 +800,8 @@ def compare_models(results: List[Dict]) -> pd.DataFrame:
                     "xgboost",
                     "cnn_specific",
                     "cnn_universal",
+                    "psm_logistic_regression",
+                    "psm_xgboost",
                 ]
                 and metrics
             ):
@@ -735,7 +840,7 @@ def compare_models(results: List[Dict]) -> pd.DataFrame:
     feature_pipeline_comparison = comparison_df.copy()
     feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
         "model"
-    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
+    ].apply(lambda x: "Universal" if "universal" in x else "Specific")
     for pipeline in feature_pipeline_comparison["feature_pipeline"].unique():
         avg_roc = feature_pipeline_comparison[
             feature_pipeline_comparison["feature_pipeline"] == pipeline
@@ -792,7 +897,7 @@ def generate_conclusions(comparison_df: pd.DataFrame) -> Dict:
     feature_pipeline_comparison = comparison_df.copy()
     feature_pipeline_comparison["feature_pipeline"] = feature_pipeline_comparison[
         "model"
-    ].apply(lambda x: "Specific" if x == "cnn_specific" else "Universal")
+    ].apply(lambda x: "Universal" if "universal" in x else "Specific")
     pipeline_performance = (
         feature_pipeline_comparison.groupby("feature_pipeline")["roc_auc"]
         .mean()
@@ -837,6 +942,8 @@ def preprocess_model_data(results: List[Dict]) -> Dict[str, pd.DataFrame]:
         "xgboost": pd.DataFrame(),
         "cnn_specific": pd.DataFrame(),
         "cnn_universal": pd.DataFrame(),
+        "psm_logistic_regression": pd.DataFrame(),
+        "psm_xgboost": pd.DataFrame(),
     }
 
     for result in results:
@@ -891,11 +998,6 @@ def main() -> None:
 
     # Generate conclusions
     conclusions = generate_conclusions(comparison_df)
-
-    output_path = Path(args.output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    with open(output_path / "conclusions.json", "w") as f:
-        json.dump(conclusions, f, indent=2, default=str)
 
     print("\nExperiment Conclusions:")
     print(f"Best Performance: {conclusions['best_performing']}")

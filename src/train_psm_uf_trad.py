@@ -11,6 +11,7 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBClassifier
+import joblib
 
 from data import load_stock_data
 from feature_pipeline_universal import feature_pipeline
@@ -59,13 +60,13 @@ def rounded_metric(value: float | None) -> float | None:
 def build_scenarios() -> list[dict[str, str]]:
     return [
         {
-            "scenario_name": "ssm_numeric_only_logistic_regression",
+            "scenario_name": "psm_numeric_only_logistic_regression",
             "display_name": "numeric / logistic",
             "feature_set": "numeric_only",
             "model_name": "logistic_regression",
         },
         {
-            "scenario_name": "ssm_numeric_only_xgboost",
+            "scenario_name": "psm_numeric_only_xgboost",
             "display_name": "numeric / xgboost",
             "feature_set": "numeric_only",
             "model_name": "xgboost",
@@ -143,13 +144,20 @@ def score_partition(partition: pd.DataFrame) -> dict[str, float | None]:
 
 
 def run_single_stock_scenarios(
-    train_frame: pd.DataFrame, test_frame: pd.DataFrame, symbol: str
+    train_frame: pd.DataFrame,
+    test_frame: pd.DataFrame,
+    symbol: str,
+    output_dir: Path,  # 添加output_dir参数
 ) -> tuple[pd.DataFrame, list[str]]:
     scenarios = build_scenarios()
     models, notes = build_model_factories()
 
     scenario_rows: list[dict[str, object]] = []
     prediction_frames: list[pd.DataFrame] = []
+
+    # 创建模型保存目录
+    models_dir = output_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
 
     train_inputs = train_frame[features_list]
     test_inputs = test_frame[features_list]
@@ -164,6 +172,11 @@ def run_single_stock_scenarios(
             scenario["model_name"], scenario["feature_set"], models
         )
         estimator.fit(train_inputs, y_train)
+
+        # 保存训练好的模型
+        model_path = models_dir / f"{symbol}_{scenario['model_name']}.joblib"
+        joblib.dump(estimator, model_path)
+        print(f"    Model saved to {model_path}")
 
         probabilities = estimator.predict_proba(test_inputs)[:, 1]
         predicted_labels = (probabilities >= 0.5).astype(int)
@@ -233,6 +246,10 @@ def main() -> None:
 
     print("")
     print("[3/3] Running scenarios per symbol")
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     for symbol in symbols:
         symbol_data = feature_table[feature_table["symbol"] == symbol].copy()
         if len(symbol_data) < 50:
@@ -242,15 +259,12 @@ def main() -> None:
         train_frame, test_frame = split_data(symbol_data, args.test_size)
 
         scenario_metrics, predictions, notes = run_single_stock_scenarios(
-            train_frame, test_frame, symbol
+            train_frame, test_frame, symbol, output_dir
         )
 
         all_scenario_metrics.append(scenario_metrics)
         all_predictions.append(predictions)
         all_notes.extend(notes)
-
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     if all_scenario_metrics:
         combined_metrics = pd.concat(all_scenario_metrics, ignore_index=True)
