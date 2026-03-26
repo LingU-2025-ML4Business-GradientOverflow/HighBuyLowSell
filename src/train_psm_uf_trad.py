@@ -147,7 +147,7 @@ def run_single_stock_scenarios(
     train_frame: pd.DataFrame,
     test_frame: pd.DataFrame,
     symbol: str,
-    output_dir: Path,  # 添加output_dir参数
+    output_dir: Path,
 ) -> tuple[pd.DataFrame, list[str]]:
     scenarios = build_scenarios()
     models, notes = build_model_factories()
@@ -155,7 +155,6 @@ def run_single_stock_scenarios(
     scenario_rows: list[dict[str, object]] = []
     prediction_frames: list[pd.DataFrame] = []
 
-    # 创建模型保存目录
     models_dir = output_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
 
@@ -173,7 +172,7 @@ def run_single_stock_scenarios(
         )
         estimator.fit(train_inputs, y_train)
 
-        # 保存训练好的模型
+        # save model
         model_path = models_dir / f"{symbol}_{scenario['model_name']}.joblib"
         joblib.dump(estimator, model_path)
         print(f"    Model saved to {model_path}")
